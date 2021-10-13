@@ -54,6 +54,7 @@ pyo3 = { version = "0.14", optional = true }
 lexical-core = "^0.8"
 multiversion = "0.6.1"
 bitflags = "1.2.1"
+tracing = { version = "0.1", features = ["max_level_trace", "release_max_level_debug"] }
 
 [features]
 default = ["csv", "ipc", "test_utils"]

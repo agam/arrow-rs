@@ -18,6 +18,8 @@
 //! Defines memory-related functions, such as allocate/deallocate/reallocate memory
 //! regions, cache and allocation alignments.
 
+use lazy_static::lazy_static;
+use std::env;
 use std::mem::size_of;
 use std::ptr::NonNull;
 use std::{
@@ -33,6 +35,16 @@ pub use types::NativeType;
 
 // If this number is not zero after all objects have been `drop`, there is a memory leak
 pub static mut ALLOCATIONS: AtomicIsize = AtomicIsize::new(0);
+
+// Log all allocations above this threshold.
+const ALLOC_LOG_THRESHOLD_DEFAULT: usize = 500_000_000;
+lazy_static! {
+    static ref ALLOC_LOG_THRESHOLD: usize = env::var("ARROW_LOG_THRESHOLD")
+        .ok()
+        .map(|s| s.parse::<usize>().ok())
+        .flatten()
+        .unwrap_or(ALLOC_LOG_THRESHOLD_DEFAULT);
+}
 
 #[inline]
 unsafe fn null_pointer<T: NativeType>() -> NonNull<T> {
@@ -50,6 +62,13 @@ pub fn allocate_aligned<T: NativeType>(size: usize) -> NonNull<T> {
             let size = size * size_of::<T>();
             ALLOCATIONS.fetch_add(size as isize, std::sync::atomic::Ordering::SeqCst);
 
+            if size > *ALLOC_LOG_THRESHOLD {
+                tracing::info!(
+                    "Arrow allocation: {} for {}",
+                    size,
+                    std::any::type_name::<T>()
+                );
+            }
             let layout = Layout::from_size_align_unchecked(size, ALIGNMENT);
             let raw_ptr = std::alloc::alloc(layout) as *mut T;
             NonNull::new(raw_ptr).unwrap_or_else(|| handle_alloc_error(layout))
@@ -68,6 +87,13 @@ pub fn allocate_aligned_zeroed<T: NativeType>(size: usize) -> NonNull<T> {
             let size = size * size_of::<T>();
             ALLOCATIONS.fetch_add(size as isize, std::sync::atomic::Ordering::SeqCst);
 
+            if size > *ALLOC_LOG_THRESHOLD {
+                tracing::info!(
+                    "Arrow allocation (zeroed): {} for {}",
+                    size,
+                    std::any::type_name::<T>()
+                );
+            }
             let layout = Layout::from_size_align_unchecked(size, ALIGNMENT);
             let raw_ptr = std::alloc::alloc_zeroed(layout) as *mut T;
             NonNull::new(raw_ptr).unwrap_or_else(|| handle_alloc_error(layout))
@@ -125,6 +151,14 @@ pub unsafe fn reallocate<T: NativeType>(
         new_size as isize - old_size as isize,
         std::sync::atomic::Ordering::SeqCst,
     );
+    if new_size > *ALLOC_LOG_THRESHOLD {
+        tracing::info!(
+            "Arrow allocation (re-alloc): {} for {} (was {})",
+            new_size,
+            std::any::type_name::<T>(),
+            old_size
+        );
+    }
     let raw_ptr = std::alloc::realloc(
         ptr.as_ptr() as *mut u8,
         Layout::from_size_align_unchecked(old_size, ALIGNMENT),
