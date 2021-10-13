@@ -37,13 +37,14 @@ pub use types::NativeType;
 pub static mut ALLOCATIONS: AtomicIsize = AtomicIsize::new(0);
 
 // Log all allocations above this threshold.
-const ALLOC_LOG_THRESHOLD_DEFAULT: usize = 500_000_000;
+const ARROW_ALLOC_PANIC_THRESHOLD_DEFAULT: usize = 500_000_000;
 lazy_static! {
-    static ref ALLOC_LOG_THRESHOLD: usize = env::var("ARROW_LOG_THRESHOLD")
-        .ok()
-        .map(|s| s.parse::<usize>().ok())
-        .flatten()
-        .unwrap_or(ALLOC_LOG_THRESHOLD_DEFAULT);
+    static ref ARROW_ALLOC_PANIC_THRESHOLD: usize =
+        env::var("ARROW_ALLOC_PANIC_THRESHOLD")
+            .ok()
+            .map(|s| s.parse::<usize>().ok())
+            .flatten()
+            .unwrap_or(ARROW_ALLOC_PANIC_THRESHOLD_DEFAULT);
 }
 
 #[inline]
@@ -62,8 +63,8 @@ pub fn allocate_aligned<T: NativeType>(size: usize) -> NonNull<T> {
             let size = size * size_of::<T>();
             ALLOCATIONS.fetch_add(size as isize, std::sync::atomic::Ordering::SeqCst);
 
-            if size > *ALLOC_LOG_THRESHOLD {
-                tracing::info!(
+            if size > *ARROW_ALLOC_PANIC_THRESHOLD {
+                panic!(
                     "Arrow allocation: {} for {}",
                     size,
                     std::any::type_name::<T>()
@@ -87,8 +88,8 @@ pub fn allocate_aligned_zeroed<T: NativeType>(size: usize) -> NonNull<T> {
             let size = size * size_of::<T>();
             ALLOCATIONS.fetch_add(size as isize, std::sync::atomic::Ordering::SeqCst);
 
-            if size > *ALLOC_LOG_THRESHOLD {
-                tracing::info!(
+            if size > *ARROW_ALLOC_PANIC_THRESHOLD {
+                panic!(
                     "Arrow allocation (zeroed): {} for {}",
                     size,
                     std::any::type_name::<T>()
@@ -151,8 +152,8 @@ pub unsafe fn reallocate<T: NativeType>(
         new_size as isize - old_size as isize,
         std::sync::atomic::Ordering::SeqCst,
     );
-    if new_size > *ALLOC_LOG_THRESHOLD {
-        tracing::info!(
+    if new_size > *ARROW_ALLOC_PANIC_THRESHOLD {
+        panic!(
             "Arrow allocation (re-alloc): {} for {} (was {})",
             new_size,
             std::any::type_name::<T>(),
